@@ -26,8 +26,8 @@ typedef struct IOTHUB_CLIENT_INSTANCE_TAG
     IOTHUB_CLIENT_LL_HANDLE IoTHubClientLLHandle;
     TRANSPORT_HANDLE TransportHandle;
     THREAD_HANDLE ThreadHandle;
-	LOCK_HANDLE LockHandle;
-	LOCK_HANDLE SharedLockHandle;
+    LOCK_HANDLE LockHandle;
+    LOCK_HANDLE SharedLockHandle;
     sig_atomic_t StopThread;
 #ifndef DONT_USE_UPLOADTOBLOB
     SINGLYLINKEDLIST_HANDLE savedDataToBeCleaned; /*list containing UPLOADTOBLOB_SAVED_DATA*/
@@ -519,32 +519,32 @@ static void ScheduleWork_Thread_ForMultiplexing(void* iotHubClientHandle)
 {
         IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)iotHubClientHandle;
 
-	if (Lock(iotHubClientInstance->LockHandle) == LOCK_OK)
-	{
+    if (Lock(iotHubClientInstance->LockHandle) == LOCK_OK)
+    {
 #ifndef DONT_USE_UPLOADTOBLOB
-			garbageCollectorImpl(iotHubClientInstance);
+        garbageCollectorImpl(iotHubClientInstance);
 #endif
-			VECTOR_HANDLE call_backs = VECTOR_move(iotHubClientInstance->saved_user_callback_list);
-			(void)Unlock(iotHubClientInstance->LockHandle);
+        VECTOR_HANDLE call_backs = VECTOR_move(iotHubClientInstance->saved_user_callback_list);
+        (void)Unlock(iotHubClientInstance->LockHandle);
 
-			if (call_backs == NULL)
-			{
-				LogError("Failed moving user callbacks");
-			}
-			else
-			{
-				dispatch_user_callbacks(iotHubClientInstance, call_backs);
-			}
-	}
-	else
-	{
-		LogError("failed locking for ScheduleWork_Thread_ForMultiplexing");
-	}
+        if (call_backs == NULL)
+        {
+            LogError("Failed moving user callbacks");
+        }
+        else
+        {
+            dispatch_user_callbacks(iotHubClientInstance, call_backs);
+        }
+    }
+    else
+    {
+        LogError("failed locking for ScheduleWork_Thread_ForMultiplexing");
+    }
 }
 
 static int ScheduleWork_Thread(void* threadArgument)
 {
-	IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)threadArgument;
+    IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)threadArgument;
 
     while (1)
     {
@@ -636,14 +636,14 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
             result = NULL;
         }
         else if ((result->LockHandle = Lock_Init()) == NULL)
-		{
-			/* Codes_SRS_IOTHUBCLIENT_01_030: [If creating the lock fails, then IoTHubClient_Create shall return NULL.] */
-			/* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
-			LogError("Failure creating Lock object");
-			free(result);
-			result = NULL;
-		}
-		else
+        {
+            /* Codes_SRS_IOTHUBCLIENT_01_030: [If creating the lock fails, then IoTHubClient_Create shall return NULL.] */
+            /* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
+            LogError("Failure creating Lock object");
+            free(result);
+            result = NULL;
+        }
+        else
         {
 #ifndef DONT_USE_UPLOADTOBLOB
             /*Codes_SRS_IOTHUBCLIENT_02_060: [ IoTHubClient_Create shall create a SINGLYLINKEDLIST_HANDLE containing THREAD_HANDLE (created by future calls to IoTHubClient_UploadToBlobAsync). ]*/
@@ -658,7 +658,7 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
             else
 #endif
             {
-				result->SharedLockHandle = NULL;
+                result->SharedLockHandle = NULL;
                 result->TransportHandle = transportHandle;
                 result->created_with_transport_handle = 0;
 
@@ -820,11 +820,11 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
 
         IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)iotHubClientHandle;
 
-		if (iotHubClientInstance->SharedLockHandle != NULL && Lock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
-		{
-			LogError("unable to Lock the shared transport");
-			exit(1);
-		}
+        if (iotHubClientInstance->SharedLockHandle != NULL && Lock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
+        {
+            LogError("unable to Lock the shared transport");
+            exit(1);
+        }
 
         /*Codes_SRS_IOTHUBCLIENT_02_043: [ IoTHubClient_Destroy shall lock the serializing lock and signal the worker thread (if any) to end ]*/
         if (Lock(iotHubClientInstance->LockHandle) != LOCK_OK)
@@ -857,11 +857,11 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
             okToJoin = IoTHubTransport_SignalEndWorkerThread(iotHubClientInstance->TransportHandle, iotHubClientHandle);
         }
 
-		if (iotHubClientInstance->SharedLockHandle != NULL && Unlock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
-		{
-			LogError("unable to Unlock shared transport");
-			exit(1);
-		}
+        if (iotHubClientInstance->SharedLockHandle != NULL && Unlock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
+        {
+            LogError("unable to Unlock shared transport");
+            exit(1);
+        }
 
         /* Codes_SRS_IOTHUBCLIENT_01_006: [That includes destroying the IoTHubClient_LL instance by calling IoTHubClient_LL_Destroy.] */
         IoTHubClient_LL_Destroy(iotHubClientInstance->IoTHubClientLLHandle);
