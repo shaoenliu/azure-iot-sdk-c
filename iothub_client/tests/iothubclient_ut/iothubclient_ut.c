@@ -505,8 +505,8 @@ static void setup_create_iothub_instance(bool use_ll_create)
     EXPECTED_CALL(gballoc_malloc(IGNORED_NUM_ARG) );
     STRICT_EXPECTED_CALL(VECTOR_create(IGNORED_NUM_ARG))
         .IgnoreArgument(1);
-    STRICT_EXPECTED_CALL(singlylinkedlist_create());
     STRICT_EXPECTED_CALL(Lock_Init());
+    STRICT_EXPECTED_CALL(singlylinkedlist_create());
     if (use_ll_create)
     {
         STRICT_EXPECTED_CALL(IoTHubClient_LL_Create(TEST_CLIENT_CONFIG));
@@ -522,6 +522,7 @@ static void setup_iothubclient_createwithtransport()
     EXPECTED_CALL(gballoc_malloc(IGNORED_NUM_ARG) );
     STRICT_EXPECTED_CALL(VECTOR_create(IGNORED_NUM_ARG))
         .IgnoreArgument(1);
+    STRICT_EXPECTED_CALL(Lock_Init());
     STRICT_EXPECTED_CALL(singlylinkedlist_create());
 
     STRICT_EXPECTED_CALL(IoTHubTransport_GetLock(TEST_TRANSPORT_HANDLE));
@@ -817,7 +818,7 @@ TEST_FUNCTION(IoTHubClient_CreateWithTransport_fail)
     client_config.deviceSasToken = TEST_DEVICE_SAS;
     client_config.protocol = TEST_TRANSPORT_PROVIDER;
 
-    size_t calls_cannot_fail[] = { 7 };
+    size_t calls_cannot_fail[] = { 8 };
 
     // act
     size_t count = umock_c_negative_tests_call_count();
