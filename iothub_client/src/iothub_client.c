@@ -26,7 +26,8 @@ typedef struct IOTHUB_CLIENT_INSTANCE_TAG
     IOTHUB_CLIENT_LL_HANDLE IoTHubClientLLHandle;
     TRANSPORT_HANDLE TransportHandle;
     THREAD_HANDLE ThreadHandle;
-    LOCK_HANDLE LockHandle;
+	LOCK_HANDLE LockHandle;
+	LOCK_HANDLE SharedLockHandle;
     sig_atomic_t StopThread;
 #ifndef DONT_USE_UPLOADTOBLOB
     SINGLYLINKEDLIST_HANDLE savedDataToBeCleaned; /*list containing UPLOADTOBLOB_SAVED_DATA*/
@@ -464,11 +465,11 @@ static void dispatch_user_callbacks(IOTHUB_CLIENT_INSTANCE* iotHubClientInstance
 
                         BUFFER_delete(queued_cb->iothub_callback.method_cb_info.payload);
                         STRING_delete(queued_cb->iothub_callback.method_cb_info.method_name);
-						
-						if (payload_resp)
-						{
+                        
+                        if (payload_resp)
+                        {
                             free(payload_resp);
-						}
+                        }
                     }
                     break;
                 case CALLBACK_TYPE_INBOUD_DEVICE_METHOD:
@@ -514,9 +515,36 @@ static void dispatch_user_callbacks(IOTHUB_CLIENT_INSTANCE* iotHubClientInstance
     VECTOR_destroy(call_backs);
 }
 
+static void ScheduleWork_Thread_ForMultiplexing(void* iotHubClientHandle)
+{
+        IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)iotHubClientHandle;
+
+	if (Lock(iotHubClientInstance->LockHandle) == LOCK_OK)
+	{
+#ifndef DONT_USE_UPLOADTOBLOB
+			garbageCollectorImpl(iotHubClientInstance);
+#endif
+			VECTOR_HANDLE call_backs = VECTOR_move(iotHubClientInstance->saved_user_callback_list);
+			(void)Unlock(iotHubClientInstance->LockHandle);
+
+			if (call_backs == NULL)
+			{
+				LogError("Failed moving user callbacks");
+			}
+			else
+			{
+				dispatch_user_callbacks(iotHubClientInstance, call_backs);
+			}
+	}
+	else
+	{
+		LogError("failed locking for ScheduleWork_Thread_ForMultiplexing");
+	}
+}
+
 static int ScheduleWork_Thread(void* threadArgument)
 {
-    IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)threadArgument;
+	IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)threadArgument;
 
     while (1)
     {
@@ -588,7 +616,7 @@ static IOTHUB_CLIENT_RESULT StartWorkerThreadIfNeeded(IOTHUB_CLIENT_INSTANCE* io
     {
         /*Codes_SRS_IOTHUBCLIENT_17_012: [ If the transport connection is shared, the thread shall be started by calling IoTHubTransport_StartWorkerThread. ]*/
         /*Codes_SRS_IOTHUBCLIENT_17_011: [ If the transport connection is shared, the thread shall be started by calling IoTHubTransport_StartWorkerThread*/
-        result = IoTHubTransport_StartWorkerThread(iotHubClientInstance->TransportHandle, iotHubClientInstance);
+        result = IoTHubTransport_StartWorkerThread(iotHubClientInstance->TransportHandle, iotHubClientInstance, ScheduleWork_Thread_ForMultiplexing);
     }
     return result;
 }
@@ -607,7 +635,15 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
             free(result);
             result = NULL;
         }
-        else
+        else if ((result->LockHandle = Lock_Init()) == NULL)
+		{
+			/* Codes_SRS_IOTHUBCLIENT_01_030: [If creating the lock fails, then IoTHubClient_Create shall return NULL.] */
+			/* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
+			LogError("Failure creating Lock object");
+			free(result);
+			result = NULL;
+		}
+		else
         {
 #ifndef DONT_USE_UPLOADTOBLOB
             /*Codes_SRS_IOTHUBCLIENT_02_060: [ IoTHubClient_Create shall create a SINGLYLINKEDLIST_HANDLE containing THREAD_HANDLE (created by future calls to IoTHubClient_UploadToBlobAsync). ]*/
@@ -622,15 +658,17 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
             else
 #endif
             {
+				result->SharedLockHandle = NULL;
                 result->TransportHandle = transportHandle;
                 result->created_with_transport_handle = 0;
+
                 if (config != NULL)
                 {
                     if (transportHandle != NULL)
                     {
                         /*Codes_SRS_IOTHUBCLIENT_17_005: [ IoTHubClient_CreateWithTransport shall call IoTHubTransport_GetLock to get the transport lock to be used later for serializing IoTHubClient calls. ]*/
-                        result->LockHandle = IoTHubTransport_GetLock(transportHandle);
-                        if (result->LockHandle == NULL)
+                        result->SharedLockHandle = IoTHubTransport_GetLock(transportHandle);
+                        if (result->SharedLockHandle == NULL)
                         {
                             LogError("unable to IoTHubTransport_GetLock");
                             result->IoTHubClientLLHandle = NULL;
@@ -673,36 +711,14 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
                     }
                     else
                     {
-                        result->LockHandle = Lock_Init();
-                        if (result->LockHandle == NULL)
-                        {
-                            /* Codes_SRS_IOTHUBCLIENT_01_030: [If creating the lock fails, then IoTHubClient_Create shall return NULL.] */
-                            /* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
-                            LogError("Failure creating Lock object");
-                            result->IoTHubClientLLHandle = NULL;
-                        }
-                        else 
-                        {
-                            /* Codes_SRS_IOTHUBCLIENT_01_002: [IoTHubClient_Create shall instantiate a new IoTHubClient_LL instance by calling IoTHubClient_LL_Create and passing the config argument.] */
-                            result->IoTHubClientLLHandle = IoTHubClient_LL_Create(config);
-                        }
+                        /* Codes_SRS_IOTHUBCLIENT_01_002: [IoTHubClient_Create shall instantiate a new IoTHubClient_LL instance by calling IoTHubClient_LL_Create and passing the config argument.] */
+                        result->IoTHubClientLLHandle = IoTHubClient_LL_Create(config);
                     }
                 }
                 else
                 {
-                    result->LockHandle = Lock_Init();
-                    if (result->LockHandle == NULL)
-                    {
-                        /* Codes_SRS_IOTHUBCLIENT_01_030: [If creating the lock fails, then IoTHubClient_Create shall return NULL.] */
-                        /* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
-                        LogError("Failure creating Lock object");
-                        result->IoTHubClientLLHandle = NULL;
-                    }
-                    else 
-                    {
-                        /* Codes_SRS_IOTHUBCLIENT_12_006: [IoTHubClient_CreateFromConnectionString shall instantiate a new IoTHubClient_LL instance by calling IoTHubClient_LL_CreateFromConnectionString and passing the connectionString] */
-                        result->IoTHubClientLLHandle = IoTHubClient_LL_CreateFromConnectionString(connectionString, protocol);
-                    }
+                    /* Codes_SRS_IOTHUBCLIENT_12_006: [IoTHubClient_CreateFromConnectionString shall instantiate a new IoTHubClient_LL instance by calling IoTHubClient_LL_CreateFromConnectionString and passing the connectionString] */
+                    result->IoTHubClientLLHandle = IoTHubClient_LL_CreateFromConnectionString(connectionString, protocol);
                 }
 
                 if (result->IoTHubClientLLHandle == NULL)
@@ -710,10 +726,8 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
                     /* Codes_SRS_IOTHUBCLIENT_01_003: [If IoTHubClient_LL_Create fails, then IoTHubClient_Create shall return NULL.] */
                     /* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
                     /* Codes_SRS_IOTHUBCLIENT_17_006: [ If IoTHubTransport_GetLock fails, then IoTHubClient_CreateWithTransport shall return NULL. ]*/
-                    if (transportHandle == NULL)
-                    {
-                        Lock_Deinit(result->LockHandle);
-                    }
+                    Lock_Deinit(result->LockHandle);
+
 #ifndef DONT_USE_UPLOADTOBLOB
                     singlylinkedlist_destroy(result->savedDataToBeCleaned);
 #endif
@@ -806,10 +820,17 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
 
         IOTHUB_CLIENT_INSTANCE* iotHubClientInstance = (IOTHUB_CLIENT_INSTANCE*)iotHubClientHandle;
 
+		if (iotHubClientInstance->SharedLockHandle != NULL && Lock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
+		{
+			LogError("unable to Lock the shared transport");
+			exit(1);
+		}
+
         /*Codes_SRS_IOTHUBCLIENT_02_043: [ IoTHubClient_Destroy shall lock the serializing lock and signal the worker thread (if any) to end ]*/
         if (Lock(iotHubClientInstance->LockHandle) != LOCK_OK)
         {
-            LogError("unable to Lock - - will still proceed to try to end the thread without locking");
+            LogError("unable to Lock client");
+            exit(1);
         }
 
 #ifndef DONT_USE_UPLOADTOBLOB
@@ -835,6 +856,12 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
             /*Codes_SRS_IOTHUBCLIENT_01_007: [ The thread created as part of executing IoTHubClient_SendEventAsync or IoTHubClient_SetNotificationMessageCallback shall be joined. ]*/
             okToJoin = IoTHubTransport_SignalEndWorkerThread(iotHubClientInstance->TransportHandle, iotHubClientHandle);
         }
+
+		if (iotHubClientInstance->SharedLockHandle != NULL && Unlock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
+		{
+			LogError("unable to Unlock shared transport");
+			exit(1);
+		}
 
         /* Codes_SRS_IOTHUBCLIENT_01_006: [That includes destroying the IoTHubClient_LL instance by calling IoTHubClient_LL_Destroy.] */
         IoTHubClient_LL_Destroy(iotHubClientInstance->IoTHubClientLLHandle);
@@ -901,11 +928,9 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
         }
         VECTOR_destroy(iotHubClientInstance->saved_user_callback_list);
 
-        if (iotHubClientInstance->TransportHandle == NULL)
-        {
-            /* Codes_SRS_IOTHUBCLIENT_01_032: [If the lock was allocated in IoTHubClient_Create, it shall be also freed..] */
-            Lock_Deinit(iotHubClientInstance->LockHandle);
-        }
+        /* Codes_SRS_IOTHUBCLIENT_01_032: [If the lock was allocated in IoTHubClient_Create, it shall be also freed..] */
+        Lock_Deinit(iotHubClientInstance->LockHandle);
+
         if (iotHubClientInstance->devicetwin_user_context != NULL)
         {
             free(iotHubClientInstance->devicetwin_user_context);
@@ -1570,6 +1595,10 @@ IOTHUB_CLIENT_RESULT IoTHubClient_SetDeviceMethodCallback(IOTHUB_CLIENT_HANDLE i
                             free(iotHubClientInstance->method_user_context);
                             iotHubClientInstance->method_user_context = NULL;
                         }
+                        else
+                        {
+                            iotHubClientInstance->device_method_callback = deviceMethodCallback;
+                        }
                     }
                 }
             }
@@ -1647,6 +1676,10 @@ IOTHUB_CLIENT_RESULT IoTHubClient_SetDeviceMethodCallback_Ex(IOTHUB_CLIENT_HANDL
                             LogError("IoTHubClient_LL_SetDeviceMethodCallback_Ex failed");
                             free(iotHubClientInstance->method_user_context);
                             iotHubClientInstance->method_user_context = NULL;
+                        }
+                        else
+                        {
+                            iotHubClientInstance->inbound_device_method_callback = inboundDeviceMethodCallback;
                         }
                     }
                 }

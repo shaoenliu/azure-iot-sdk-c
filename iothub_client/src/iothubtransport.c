@@ -22,6 +22,7 @@ typedef struct TRANSPORT_HANDLE_DATA_TAG
     sig_atomic_t stopThread;
 	TRANSPORT_PROVIDER_FIELDS;
 	VECTOR_HANDLE clients;
+	IOTHUB_CLIENT_MULTIPLEXED_DO_WORK clientDoWork;
 } TRANSPORT_HANDLE_DATA;
 
 /* Used for Unit test */
@@ -102,6 +103,7 @@ TRANSPORT_HANDLE  IoTHubTransport_Create(IOTHUB_CLIENT_TRANSPORT_PROVIDER protoc
 					{
 						/*Codes_SRS_IOTHUBTRANSPORT_17_001: [ IoTHubTransport_Create shall return a non-NULL handle on success.]*/
 						result->stopThread = 1;
+						result->clientDoWork = NULL;
 						result->workerThreadHandle = NULL; /* create thread when work needs to be done */
                         result->IoTHubTransport_GetHostname = transportProtocol->IoTHubTransport_GetHostname;
 						result->IoTHubTransport_SetOption = transportProtocol->IoTHubTransport_SetOption;
@@ -123,6 +125,23 @@ TRANSPORT_HANDLE  IoTHubTransport_Create(IOTHUB_CLIENT_TRANSPORT_PROVIDER protoc
 	return result;
 }
 
+static void multiplexed_client_do_work(TRANSPORT_HANDLE_DATA* transportData)
+{
+	size_t numberOfClients;
+	size_t iterator;
+
+	numberOfClients = VECTOR_size(transportData->clients);
+	for (iterator = 0; iterator < numberOfClients; iterator++)
+	{
+		IOTHUB_CLIENT_HANDLE* clientHandle = (IOTHUB_CLIENT_HANDLE*)VECTOR_element(transportData->clients, iterator);
+
+		if (clientHandle != NULL)
+		{
+			transportData->clientDoWork(*clientHandle);
+		}
+	}
+}
+
 static int transport_worker_thread(void* threadArgument)
 {
 	TRANSPORT_HANDLE_DATA* transportData = (TRANSPORT_HANDLE_DATA*)threadArgument;
@@ -142,9 +161,13 @@ static int transport_worker_thread(void* threadArgument)
 			else
 			{
 				(transportData->IoTHubTransport_DoWork)(transportData->transportLLHandle, NULL);
+
+				multiplexed_client_do_work(transportData);
+
 				(void)Unlock(transportData->lockHandle);
 			}
 		}
+
 		/*Codes_SRS_IOTHUBTRANSPORT_17_029: [ The thread shall call lower layer transport DoWork every 1 ms. ]*/
 		ThreadAPI_Sleep(1);
 	}
@@ -181,6 +204,7 @@ static IOTHUB_CLIENT_RESULT start_worker_if_needed(TRANSPORT_HANDLE_DATA * trans
 			/*Codes_SRS_IOTHUBTRANSPORT_17_021: [ If handle is not found, then clientHandle shall be added to the list. ]*/
 			if (VECTOR_push_back(transportData->clients, &clientHandle, 1) != 0)
 			{
+				LogError("Failed adding device to list (VECTOR_push_back failed)");
 				/*Codes_SRS_IOTHUBTRANSPORT_17_042: [ If Adding to the client list fails, IoTHubTransport_StartWorkerThread shall return IOTHUB_CLIENT_ERROR. ]*/
 				result = IOTHUB_CLIENT_ERROR;
 			}
@@ -313,7 +337,7 @@ TRANSPORT_LL_HANDLE IoTHubTransport_GetLLTransport(TRANSPORT_HANDLE transportHan
 	return llTransport;
 }
 
-IOTHUB_CLIENT_RESULT IoTHubTransport_StartWorkerThread(TRANSPORT_HANDLE transportHandle, IOTHUB_CLIENT_HANDLE clientHandle)
+IOTHUB_CLIENT_RESULT IoTHubTransport_StartWorkerThread(TRANSPORT_HANDLE transportHandle, IOTHUB_CLIENT_HANDLE clientHandle, IOTHUB_CLIENT_MULTIPLEXED_DO_WORK muxDoWork)
 {
 	IOTHUB_CLIENT_RESULT result;
 	if (transportHandle == NULL || clientHandle == NULL)
@@ -325,6 +349,11 @@ IOTHUB_CLIENT_RESULT IoTHubTransport_StartWorkerThread(TRANSPORT_HANDLE transpor
 	else
 	{
 		TRANSPORT_HANDLE_DATA * transportData = (TRANSPORT_HANDLE_DATA*)transportHandle;
+
+                if (transportData->clientDoWork == NULL)
+                {
+                    transportData->clientDoWork = muxDoWork;
+                }
 
 		if ((result = start_worker_if_needed(transportData, clientHandle)) != IOTHUB_CLIENT_OK)
 		{
