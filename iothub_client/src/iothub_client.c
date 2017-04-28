@@ -857,12 +857,6 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
             okToJoin = IoTHubTransport_SignalEndWorkerThread(iotHubClientInstance->TransportHandle, iotHubClientHandle);
         }
 
-        if (iotHubClientInstance->SharedLockHandle != NULL && Unlock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
-        {
-            LogError("unable to Unlock shared transport");
-            exit(1);
-        }
-
         /* Codes_SRS_IOTHUBCLIENT_01_006: [That includes destroying the IoTHubClient_LL instance by calling IoTHubClient_LL_Destroy.] */
         IoTHubClient_LL_Destroy(iotHubClientInstance->IoTHubClientLLHandle);
 
@@ -872,6 +866,12 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
             singlylinkedlist_destroy(iotHubClientInstance->savedDataToBeCleaned);
         }
 #endif
+
+        if (iotHubClientInstance->SharedLockHandle != NULL && Unlock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
+        {
+            LogError("unable to Unlock shared transport");
+            exit(1);
+        }
 
         /*Codes_SRS_IOTHUBCLIENT_02_045: [ IoTHubClient_Destroy shall unlock the serializing lock. ]*/
         if (Unlock(iotHubClientInstance->LockHandle) != LOCK_OK)
