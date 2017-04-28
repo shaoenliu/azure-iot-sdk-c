@@ -533,9 +533,9 @@ void device_method_e2e_method_call_with_string_sas(IOTHUB_CLIENT_TRANSPORT_PROVI
     test_device_method_with_string(IoTHubAccount_GetSASDevice(g_iothubAcctInfo), protocol, "\"I'm a happy little string\"");
 }
 
-void device_method_e2e_method_call_with_string_sas_multiplexed(IOTHUB_CLIENT_TRANSPORT_PROVIDER protocol)
+void device_method_e2e_method_call_with_string_sas_multiplexed(IOTHUB_CLIENT_TRANSPORT_PROVIDER protocol, size_t number_of_devices)
 {
-	test_device_method_with_string_ex(IoTHubAccount_GetSASDevices(g_iothubAcctInfo), 2, protocol, "\"I'm a happy little string from multiplexed clients\"");
+	test_device_method_with_string_ex(IoTHubAccount_GetSASDevices(g_iothubAcctInfo), number_of_devices, protocol, "\"I'm a happy little string from multiplexed clients\"");
 }
 
 void device_method_e2e_method_call_with_double_quoted_json_sas(IOTHUB_CLIENT_TRANSPORT_PROVIDER protocol)

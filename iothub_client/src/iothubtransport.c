@@ -350,10 +350,10 @@ IOTHUB_CLIENT_RESULT IoTHubTransport_StartWorkerThread(TRANSPORT_HANDLE transpor
     {
         TRANSPORT_HANDLE_DATA * transportData = (TRANSPORT_HANDLE_DATA*)transportHandle;
 
-                if (transportData->clientDoWork == NULL)
-                {
-                    transportData->clientDoWork = muxDoWork;
-                }
+        if (transportData->clientDoWork == NULL)
+        {
+            transportData->clientDoWork = muxDoWork;
+        }
 
         if ((result = start_worker_if_needed(transportData, clientHandle)) != IOTHUB_CLIENT_OK)
         {

@@ -640,6 +640,7 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
             /* Codes_SRS_IOTHUBCLIENT_01_030: [If creating the lock fails, then IoTHubClient_Create shall return NULL.] */
             /* Codes_SRS_IOTHUBCLIENT_01_031: [If IoTHubClient_Create fails, all resources allocated by it shall be freed.] */
             LogError("Failure creating Lock object");
+            VECTOR_destroy(result->saved_user_callback_list);
             free(result);
             result = NULL;
         }
@@ -651,6 +652,7 @@ static IOTHUB_CLIENT_INSTANCE* create_iothub_instance(const IOTHUB_CLIENT_CONFIG
             {
                 /*Codes_SRS_IOTHUBCLIENT_02_061: [ If creating the SINGLYLINKEDLIST_HANDLE fails then IoTHubClient_Create shall fail and return NULL. ]*/
                 LogError("unable to singlylinkedlist_create");
+                Lock_Deinit(result->LockHandle);
                 VECTOR_destroy(result->saved_user_callback_list);
                 free(result);
                 result = NULL;
@@ -823,14 +825,14 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
         if (iotHubClientInstance->SharedLockHandle != NULL && Lock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
         {
             LogError("unable to Lock the shared transport");
-            exit(1);
+            return;
         }
 
         /*Codes_SRS_IOTHUBCLIENT_02_043: [ IoTHubClient_Destroy shall lock the serializing lock and signal the worker thread (if any) to end ]*/
         if (Lock(iotHubClientInstance->LockHandle) != LOCK_OK)
         {
             LogError("unable to Lock client");
-            exit(1);
+            return;
         }
 
 #ifndef DONT_USE_UPLOADTOBLOB
@@ -870,7 +872,7 @@ void IoTHubClient_Destroy(IOTHUB_CLIENT_HANDLE iotHubClientHandle)
         if (iotHubClientInstance->SharedLockHandle != NULL && Unlock(iotHubClientInstance->SharedLockHandle) != LOCK_OK)
         {
             LogError("unable to Unlock shared transport");
-            exit(1);
+            return;
         }
 
         /*Codes_SRS_IOTHUBCLIENT_02_045: [ IoTHubClient_Destroy shall unlock the serializing lock. ]*/
